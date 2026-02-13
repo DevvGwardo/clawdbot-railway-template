@@ -550,12 +550,16 @@ app.get("/setup/api/status", requireSetupAuth, async (_req, res) => {
       { value: "moonshot-api-key", label: "Moonshot AI API key" },
       { value: "kimi-code-api-key", label: "Kimi Code API key" }
     ]},
-    { value: "zai", label: "Z.AI (GLM 4.7)", hint: "API key", options: [
-      { value: "zai-api-key", label: "Z.AI (GLM 4.7) API key" }
+    { value: "zai", label: "Z.AI (GLM 4.7 / GLM 5)", hint: "API key (multiple endpoints)", options: [
+      { value: "zai-api-key", label: "Z.AI API key (GLM 4.7)" },
+      { value: "zai-coding-global", label: "Z.AI Coding Global (GLM 5)" },
+      { value: "zai-coding-cn", label: "Z.AI Coding China (GLM 5)" },
+      { value: "zai-global", label: "Z.AI Global (GLM 5)" },
+      { value: "zai-cn", label: "Z.AI China (GLM 5)" }
     ]},
-    { value: "minimax", label: "MiniMax", hint: "M2.1 (recommended)", options: [
-      { value: "minimax-api", label: "MiniMax M2.1" },
-      { value: "minimax-api-lightning", label: "MiniMax M2.1 Lightning" }
+    { value: "minimax", label: "MiniMax", hint: "M2.5 (recommended)", options: [
+      { value: "minimax-api", label: "MiniMax M2.5" },
+      { value: "minimax-api-lightning", label: "MiniMax M2.5 Lightning" }
     ]},
     { value: "qwen", label: "Qwen", hint: "OAuth", options: [
       { value: "qwen-portal", label: "Qwen OAuth" }
@@ -618,6 +622,10 @@ function buildOnboardArgs(payload) {
       "kimi-code-api-key": "--kimi-code-api-key",
       "gemini-api-key": "--gemini-api-key",
       "zai-api-key": "--zai-api-key",
+      "zai-coding-global": "--zai-api-key",
+      "zai-coding-cn": "--zai-api-key",
+      "zai-global": "--zai-api-key",
+      "zai-cn": "--zai-api-key",
       "minimax-api": "--minimax-api-key",
       "minimax-api-lightning": "--minimax-api-key",
       "synthetic-api-key": "--synthetic-api-key",
