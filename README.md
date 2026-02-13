@@ -1,6 +1,10 @@
 # OpenClaw Railway Template (1‑click deploy)
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template-from-repo?repo=DevvGwardo/clawdbot-railway-template)
+
 This repo packages **OpenClaw** for Railway with a small **/setup** web wizard so users can deploy and onboard **without running any commands**.
+
+> **Note:** This fork includes a fix for [empty provider/model dropdowns during setup](https://github.com/vignesh07/clawdbot-railway-template/issues/89). If you're hitting that issue, click the deploy button above to get a working version.
 
 ## What you get
 
