@@ -502,6 +502,60 @@ app.get("/setup", requireSetupAuth, (_req, res) => {
 </html>`);
 });
 
+// Auth-choice groups served to the setup UI.  Single source of truth — the
+// client fallback fetches from /setup/api/auth-groups instead of duplicating.
+const AUTH_GROUPS = [
+  { value: "openai", label: "OpenAI", hint: "Codex OAuth + API key", options: [
+    { value: "codex-cli", label: "OpenAI Codex OAuth (Codex CLI)" },
+    { value: "openai-codex", label: "OpenAI Codex (ChatGPT OAuth)" },
+    { value: "openai-api-key", label: "OpenAI API key" }
+  ]},
+  { value: "anthropic", label: "Anthropic", hint: "Claude Code CLI + API key", options: [
+    { value: "claude-cli", label: "Anthropic token (Claude Code CLI)" },
+    { value: "token", label: "Anthropic token (paste setup-token)" },
+    { value: "apiKey", label: "Anthropic API key" }
+  ]},
+  { value: "google", label: "Google", hint: "Gemini API key + OAuth", options: [
+    { value: "gemini-api-key", label: "Google Gemini API key" },
+    { value: "google-antigravity", label: "Google Antigravity OAuth" },
+    { value: "google-gemini-cli", label: "Google Gemini CLI OAuth" }
+  ]},
+  { value: "openrouter", label: "OpenRouter", hint: "API key", options: [
+    { value: "openrouter-api-key", label: "OpenRouter API key" }
+  ]},
+  { value: "ai-gateway", label: "Vercel AI Gateway", hint: "API key", options: [
+    { value: "ai-gateway-api-key", label: "Vercel AI Gateway API key" }
+  ]},
+  { value: "moonshot", label: "Moonshot AI", hint: "Kimi K2 + Kimi Code", options: [
+    { value: "moonshot-api-key", label: "Moonshot AI API key" },
+    { value: "kimi-code-api-key", label: "Kimi Code API key" }
+  ]},
+  { value: "zai", label: "Z.AI (GLM 4.7 / GLM 5)", hint: "API key (multiple endpoints)", options: [
+    { value: "zai-api-key", label: "Z.AI API key (GLM 4.7)" },
+    { value: "zai-coding-global", label: "Z.AI Coding Global (GLM 5)" },
+    { value: "zai-coding-cn", label: "Z.AI Coding China (GLM 5)" },
+    { value: "zai-global", label: "Z.AI Global (GLM 5)" },
+    { value: "zai-cn", label: "Z.AI China (GLM 5)" }
+  ]},
+  { value: "minimax", label: "MiniMax", hint: "M2.5 (recommended)", options: [
+    { value: "minimax-api", label: "MiniMax M2.5" },
+    { value: "minimax-api-lightning", label: "MiniMax M2.5 Lightning" }
+  ]},
+  { value: "qwen", label: "Qwen", hint: "OAuth", options: [
+    { value: "qwen-portal", label: "Qwen OAuth" }
+  ]},
+  { value: "copilot", label: "Copilot", hint: "GitHub + local proxy", options: [
+    { value: "github-copilot", label: "GitHub Copilot (GitHub device login)" },
+    { value: "copilot-proxy", label: "Copilot Proxy (local)" }
+  ]},
+  { value: "synthetic", label: "Synthetic", hint: "Anthropic-compatible (multi-model)", options: [
+    { value: "synthetic-api-key", label: "Synthetic API key" }
+  ]},
+  { value: "opencode-zen", label: "OpenCode Zen", hint: "API key", options: [
+    { value: "opencode-zen", label: "OpenCode Zen (multi-model proxy)" }
+  ]}
+];
+
 app.get("/setup/api/status", requireSetupAuth, async (_req, res) => {
   // Collect version and help text with fallbacks - if these fail, we still return authGroups
   let openclawVersion = "";
@@ -521,68 +575,17 @@ app.get("/setup/api/status", requireSetupAuth, async (_req, res) => {
     console.error("[/setup/api/status] failed to get channels help:", e);
   }
 
-  // We reuse OpenClaw's own auth-choice grouping logic indirectly by hardcoding the same group defs.
-  // This is intentionally minimal; later we can parse the CLI help output to stay perfectly in sync.
-  // NOTE: On Railway, interactive OAuth flows are typically not viable. The UI will hide them by default.
-  const authGroups = [
-    { value: "openai", label: "OpenAI", hint: "Codex OAuth + API key", options: [
-      { value: "codex-cli", label: "OpenAI Codex OAuth (Codex CLI)" },
-      { value: "openai-codex", label: "OpenAI Codex (ChatGPT OAuth)" },
-      { value: "openai-api-key", label: "OpenAI API key" }
-    ]},
-    { value: "anthropic", label: "Anthropic", hint: "Claude Code CLI + API key", options: [
-      { value: "claude-cli", label: "Anthropic token (Claude Code CLI)" },
-      { value: "token", label: "Anthropic token (paste setup-token)" },
-      { value: "apiKey", label: "Anthropic API key" }
-    ]},
-    { value: "google", label: "Google", hint: "Gemini API key + OAuth", options: [
-      { value: "gemini-api-key", label: "Google Gemini API key" },
-      { value: "google-antigravity", label: "Google Antigravity OAuth" },
-      { value: "google-gemini-cli", label: "Google Gemini CLI OAuth" }
-    ]},
-    { value: "openrouter", label: "OpenRouter", hint: "API key", options: [
-      { value: "openrouter-api-key", label: "OpenRouter API key" }
-    ]},
-    { value: "ai-gateway", label: "Vercel AI Gateway", hint: "API key", options: [
-      { value: "ai-gateway-api-key", label: "Vercel AI Gateway API key" }
-    ]},
-    { value: "moonshot", label: "Moonshot AI", hint: "Kimi K2 + Kimi Code", options: [
-      { value: "moonshot-api-key", label: "Moonshot AI API key" },
-      { value: "kimi-code-api-key", label: "Kimi Code API key" }
-    ]},
-    { value: "zai", label: "Z.AI (GLM 4.7 / GLM 5)", hint: "API key (multiple endpoints)", options: [
-      { value: "zai-api-key", label: "Z.AI API key (GLM 4.7)" },
-      { value: "zai-coding-global", label: "Z.AI Coding Global (GLM 5)" },
-      { value: "zai-coding-cn", label: "Z.AI Coding China (GLM 5)" },
-      { value: "zai-global", label: "Z.AI Global (GLM 5)" },
-      { value: "zai-cn", label: "Z.AI China (GLM 5)" }
-    ]},
-    { value: "minimax", label: "MiniMax", hint: "M2.5 (recommended)", options: [
-      { value: "minimax-api", label: "MiniMax M2.5" },
-      { value: "minimax-api-lightning", label: "MiniMax M2.5 Lightning" }
-    ]},
-    { value: "qwen", label: "Qwen", hint: "OAuth", options: [
-      { value: "qwen-portal", label: "Qwen OAuth" }
-    ]},
-    { value: "copilot", label: "Copilot", hint: "GitHub + local proxy", options: [
-      { value: "github-copilot", label: "GitHub Copilot (GitHub device login)" },
-      { value: "copilot-proxy", label: "Copilot Proxy (local)" }
-    ]},
-    { value: "synthetic", label: "Synthetic", hint: "Anthropic-compatible (multi-model)", options: [
-      { value: "synthetic-api-key", label: "Synthetic API key" }
-    ]},
-    { value: "opencode-zen", label: "OpenCode Zen", hint: "API key", options: [
-      { value: "opencode-zen", label: "OpenCode Zen (multi-model proxy)" }
-    ]}
-  ];
-
   res.json({
     configured: isConfigured(),
     gatewayTarget: GATEWAY_TARGET,
     openclawVersion,
     channelsAddHelp,
-    authGroups,
+    authGroups: AUTH_GROUPS,
   });
+});
+
+app.get("/setup/api/auth-groups", requireSetupAuth, (_req, res) => {
+  res.json({ ok: true, authGroups: AUTH_GROUPS });
 });
 
 function buildOnboardArgs(payload) {
