@@ -1479,7 +1479,7 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
       { id: "w-4", type: "session-count", x: 647, y: 8, width: 155, height: 68, properties: { title: "Sessions", endpoint: "api/sessions", refreshInterval: 15, showHeader: true } },
       { id: "w-5", type: "network-speed", x: 810, y: 8, width: 195, height: 68, properties: { title: "Network", endpoint: "api/stats/stream", refreshInterval: 2, showHeader: true } },
       { id: "w-6", type: "disk-usage", x: 1013, y: 8, width: 155, height: 68, properties: { title: "Disk", path: "/data", endpoint: "api/stats/stream", refreshInterval: 30, showHeader: true } },
-      { id: "w-7", type: "token-gauge", x: 1176, y: 8, width: 185, height: 68, properties: { title: "Tokens", maxTokens: 1000000, endpoint: "api/usage/tokens", refreshInterval: 60, showHeader: true } },
+      { id: "w-7", type: "lobsterboard-release", x: 1176, y: 8, width: 185, height: 68, properties: { title: "Dashboard", refreshInterval: 3600, showHeader: true } },
       { id: "w-8", type: "cpu-memory", x: 1369, y: 8, width: 543, height: 68, properties: { title: "System", refreshInterval: 3, showHeader: true } },
       // Row 2: Main panels (y=84, fills remaining height)
       { id: "w-9", type: "system-log", x: 8, y: 84, width: 700, height: 988, properties: { title: "System Log", endpoint: "api/system-log", maxLines: 100, refreshInterval: 5, showHeader: true } },
@@ -1516,6 +1516,19 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   try {
     if (!fs.existsSync(homeOc)) fs.symlinkSync(STATE_DIR, homeOc);
   } catch {}
+
+  // Symlink gateway log so LobsterBoard's /api/system-log can read it.
+  // Gateway writes to /tmp/openclaw/openclaw-YYYY-MM-DD.log but LobsterBoard
+  // reads from ~/.openclaw/logs/gateway.log.
+  try {
+    const logsDir = path.join(os.homedir(), ".openclaw", "logs");
+    fs.mkdirSync(logsDir, { recursive: true });
+    const today = new Date().toISOString().split("T")[0];
+    const actualLog = `/tmp/openclaw/openclaw-${today}.log`;
+    const logLink = path.join(logsDir, "gateway.log");
+    try { fs.unlinkSync(logLink); } catch {}
+    fs.symlinkSync(actualLog, logLink);
+  } catch (e) { console.warn(`[lobsterboard] log symlink: ${e.message}`); }
 
   // Start LobsterBoard
   startLobsterBoard();
