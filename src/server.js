@@ -1386,11 +1386,12 @@ lbProxy.on("error", (err, _req, res) => {
   } catch {}
 });
 
-// Redirect /dashboard to /dashboard/ (trailing slash required for relative URLs)
-app.get("/dashboard", (_req, res) => res.redirect(301, "/dashboard/"));
-
 // Proxy /dashboard/* to LobsterBoard
-app.use("/dashboard/", requireSetupAuth, (req, res) => {
+app.use("/dashboard", requireSetupAuth, (req, res) => {
+  // Redirect /dashboard to /dashboard/ (trailing slash required for relative URLs)
+  if (req.originalUrl === "/dashboard") {
+    return res.redirect(301, "/dashboard/");
+  }
   // Strip /dashboard prefix — LobsterBoard expects root-relative paths
   req.url = req.url || "/";
   lbProxy.web(req, res);
