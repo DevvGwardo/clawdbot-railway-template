@@ -233,6 +233,14 @@ async function runDoctorBestEffort() {
 async function ensureGatewayRunning() {
   if (!isConfigured()) return { ok: false, reason: "not configured" };
   if (gatewayProc) return { ok: true };
+
+  // The gateway may have daemonized itself (v2026.2.15+), leaving gatewayProc null
+  // while the actual process still holds the port. Probe before attempting a restart
+  // to avoid an endless "gateway already running" crash loop.
+  try {
+    if (await probeGateway()) return { ok: true };
+  } catch {}
+
   if (!gatewayStarting) {
     gatewayStarting = (async () => {
       try {
