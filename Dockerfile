@@ -78,6 +78,10 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 # Let git authenticate via gh (reads GH_TOKEN env var at runtime).
 RUN git config --global credential.helper '!gh auth git-credential'
 
+# Persistent bin directory on the volume — tools installed by the agent at
+# runtime (e.g. via npm -g, curl, apt download) survive redeploys if placed here.
+ENV PATH="/data/.local/bin:${PATH}"
+
 COPY src ./src
 
 # The wrapper listens on this port.

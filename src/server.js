@@ -1394,6 +1394,10 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   try {
     fs.mkdirSync(path.join(STATE_DIR, "credentials"), { recursive: true });
   } catch {}
+  // Persistent bin directory on the volume — survives redeploys.
+  try {
+    fs.mkdirSync("/data/.local/bin", { recursive: true });
+  } catch {}
   try {
     fs.chmodSync(STATE_DIR, 0o700);
   } catch {}
