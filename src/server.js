@@ -8,29 +8,15 @@ import express from "express";
 import httpProxy from "http-proxy";
 import * as tar from "tar";
 
-/** @type {Set<string>} */
-const warnedDeprecatedEnv = new Set();
-
-/**
- * Prefer `primaryKey`, fall back to `deprecatedKey` with a one-time warning.
- * @param {string} primaryKey
- * @param {string} deprecatedKey
- */
-function getEnvWithShim(primaryKey, deprecatedKey) {
-  const primary = process.env[primaryKey]?.trim();
-  if (primary) return primary;
-
-  const deprecated = process.env[deprecatedKey]?.trim();
-  if (!deprecated) return undefined;
-
-  if (!warnedDeprecatedEnv.has(deprecatedKey)) {
-    console.warn(
-      `[deprecation] ${deprecatedKey} is deprecated. Use ${primaryKey} instead.`,
-    );
-    warnedDeprecatedEnv.add(deprecatedKey);
+// Migrate deprecated CLAWDBOT_* env vars → OPENCLAW_* so existing Railway deployments
+// keep working. Users should update their Railway Variables to use the new names.
+for (const suffix of ["PUBLIC_PORT", "STATE_DIR", "WORKSPACE_DIR", "GATEWAY_TOKEN", "CONFIG_PATH"]) {
+  const oldKey = `CLAWDBOT_${suffix}`;
+  const newKey = `OPENCLAW_${suffix}`;
+  if (process.env[oldKey] && !process.env[newKey]) {
+    process.env[newKey] = process.env[oldKey];
+    console.warn(`[migration] Copied ${oldKey} → ${newKey}. Please rename this variable in your Railway settings.`);
   }
-
-  return deprecated;
 }
 
 // Railway deployments sometimes inject PORT=3000 by default. We want the wrapper to
@@ -38,7 +24,7 @@ function getEnvWithShim(primaryKey, deprecatedKey) {
 //
 // Prefer OPENCLAW_PUBLIC_PORT (set in the Dockerfile / template) over PORT.
 const PORT = Number.parseInt(
-  getEnvWithShim("OPENCLAW_PUBLIC_PORT", "CLAWDBOT_PUBLIC_PORT") ??
+  process.env.OPENCLAW_PUBLIC_PORT?.trim() ??
     process.env.PORT ??
     "8080",
   10,
@@ -47,11 +33,11 @@ const PORT = Number.parseInt(
 // State/workspace
 // OpenClaw defaults to ~/.openclaw.
 const STATE_DIR =
-  getEnvWithShim("OPENCLAW_STATE_DIR", "CLAWDBOT_STATE_DIR") ||
+  process.env.OPENCLAW_STATE_DIR?.trim() ||
   path.join(os.homedir(), ".openclaw");
 
 const WORKSPACE_DIR =
-  getEnvWithShim("OPENCLAW_WORKSPACE_DIR", "CLAWDBOT_WORKSPACE_DIR") ||
+  process.env.OPENCLAW_WORKSPACE_DIR?.trim() ||
   path.join(STATE_DIR, "workspace");
 
 // Protect /setup with a user-provided password.
@@ -60,10 +46,7 @@ const SETUP_PASSWORD = process.env.SETUP_PASSWORD?.trim();
 // Gateway admin token (protects OpenClaw gateway + Control UI).
 // Must be stable across restarts. If not provided via env, persist it in the state dir.
 function resolveGatewayToken() {
-  const envTok = getEnvWithShim(
-    "OPENCLAW_GATEWAY_TOKEN",
-    "CLAWDBOT_GATEWAY_TOKEN",
-  );
+  const envTok = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
   if (envTok) return envTok;
 
   const tokenPath = path.join(STATE_DIR, "gateway.token");
@@ -101,15 +84,10 @@ function clawArgs(args) {
 }
 
 function resolveConfigCandidates() {
-  const explicit = getEnvWithShim("OPENCLAW_CONFIG_PATH", "CLAWDBOT_CONFIG_PATH");
+  const explicit = process.env.OPENCLAW_CONFIG_PATH?.trim();
   if (explicit) return [explicit];
 
-  // Prefer the newest canonical name, but fall back to legacy filenames if present.
-  return [
-    path.join(STATE_DIR, "openclaw.json"),
-    path.join(STATE_DIR, "moltbot.json"),
-    path.join(STATE_DIR, "clawdbot.json"),
-  ];
+  return [path.join(STATE_DIR, "openclaw.json")];
 }
 
 function configPath() {
@@ -133,6 +111,29 @@ function isConfigured() {
   }
 }
 
+// One-time migration: rename legacy config files to openclaw.json so existing
+// deployments that still have the old filename on their volume keep working.
+(function migrateLegacyConfigFile() {
+  // If the operator explicitly chose a config path, do not rename files in STATE_DIR.
+  if (process.env.OPENCLAW_CONFIG_PATH?.trim()) return;
+
+  const canonical = path.join(STATE_DIR, "openclaw.json");
+  if (fs.existsSync(canonical)) return;
+
+  for (const legacy of ["clawdbot.json", "moltbot.json"]) {
+    const legacyPath = path.join(STATE_DIR, legacy);
+    try {
+      if (fs.existsSync(legacyPath)) {
+        fs.renameSync(legacyPath, canonical);
+        console.log(`[migration] Renamed ${legacy} → openclaw.json`);
+        return;
+      }
+    } catch (err) {
+      console.warn(`[migration] Failed to rename ${legacy}: ${err}`);
+    }
+  }
+})();
+
 let gatewayProc = null;
 let gatewayStarting = null;
 
@@ -151,8 +152,8 @@ async function waitForGatewayReady(opts = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      // Try the default Control UI base path, then fall back to legacy or root.
-      const paths = ["/openclaw", "/clawdbot", "/"]; 
+      // Try the default Control UI base path, then fall back to root.
+      const paths = ["/openclaw", "/"];
       for (const p of paths) {
         try {
           const res = await fetch(`${GATEWAY_TARGET}${p}`, { method: "GET" });
@@ -301,6 +302,29 @@ app.use(express.json({ limit: "1mb" }));
 // Minimal health endpoint for Railway.
 app.get("/setup/healthz", (_req, res) => res.json({ ok: true }));
 
+async function probeGateway() {
+  // Don't assume HTTP — the gateway primarily speaks WebSocket.
+  // A simple TCP connect check is enough for "is it up".
+  const net = await import("node:net");
+
+  return await new Promise((resolve) => {
+    const sock = net.createConnection({
+      host: INTERNAL_GATEWAY_HOST,
+      port: INTERNAL_GATEWAY_PORT,
+      timeout: 750,
+    });
+
+    const done = (ok) => {
+      try { sock.destroy(); } catch {}
+      resolve(ok);
+    };
+
+    sock.on("connect", () => done(true));
+    sock.on("timeout", () => done(false));
+    sock.on("error", () => done(false));
+  });
+}
+
 // Public health endpoint (no auth) so Railway can probe without /setup.
 // Keep this free of secrets.
 app.get("/healthz", async (_req, res) => {
@@ -418,10 +442,14 @@ app.get("/setup", requireSetupAuth, (_req, res) => {
     <h2>1) Model/auth provider</h2>
     <p class="muted">Matches the groups shown in the terminal onboarding.</p>
     <label>Provider group</label>
-    <select id="authGroup"></select>
+    <select id="authGroup">
+      <option>Loading providers…</option>
+    </select>
 
     <label>Auth method</label>
-    <select id="authChoice"></select>
+    <select id="authChoice">
+      <option>Loading methods…</option>
+    </select>
 
     <label>Key / Token (if required)</label>
     <input id="authSecret" type="password" placeholder="Paste API key / token if applicable" />
@@ -660,6 +688,8 @@ function buildOnboardArgs(payload) {
 
 function runCmd(cmd, args, opts = {}) {
   return new Promise((resolve) => {
+    const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 120_000;
+
     const proc = childProcess.spawn(cmd, args, {
       ...opts,
       env: {
@@ -673,17 +703,38 @@ function runCmd(cmd, args, opts = {}) {
     proc.stdout?.on("data", (d) => (out += d.toString("utf8")));
     proc.stderr?.on("data", (d) => (out += d.toString("utf8")));
 
+    let killTimer;
+    const timer = setTimeout(() => {
+      try { proc.kill("SIGTERM"); } catch {}
+      killTimer = setTimeout(() => {
+        try { proc.kill("SIGKILL"); } catch {}
+      }, 2_000);
+      out += `\n[timeout] Command exceeded ${timeoutMs}ms and was terminated.\n`;
+      resolve({ code: 124, output: out });
+    }, timeoutMs);
+
     proc.on("error", (err) => {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       out += `\n[spawn error] ${String(err)}\n`;
       resolve({ code: 127, output: out });
     });
 
-    proc.on("close", (code) => resolve({ code: code ?? 0, output: out }));
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      resolve({ code: code ?? 0, output: out });
+    });
   });
 }
 
 app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
   try {
+    const safeWrite = (msg) => {
+      try {
+        if (!res.writableEnded) res.write(String(msg) + "\n");
+      } catch {}
+    };
     if (isConfigured()) {
       await ensureGatewayRunning();
       return res.json({ ok: true, output: "Already configured.\nUse Reset setup if you want to rerun onboarding.\n" });
@@ -701,6 +752,7 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
       return res.status(400).json({ ok: false, output: `Setup input error: ${String(err)}` });
     }
 
+    safeWrite("[setup] running openclaw onboard...");
     const onboard = await runCmd(OPENCLAW_NODE, clawArgs(onboardArgs));
 
   let extra = "";
@@ -718,6 +770,13 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
     await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.remote.token", OPENCLAW_GATEWAY_TOKEN]));
     await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.bind", "loopback"]));
     await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "gateway.port", String(INTERNAL_GATEWAY_PORT)]));
+
+    // Railway runs behind a reverse proxy. Trust loopback as a proxy hop so local client detection
+    // remains correct when X-Forwarded-* headers are present.
+    await runCmd(
+      OPENCLAW_NODE,
+      clawArgs(["config", "set", "--json", "gateway.trustedProxies", JSON.stringify(["127.0.0.1"]) ]),
+    );
 
     // Optional: configure a custom OpenAI-compatible provider (base URL) for advanced users.
     if (payload.customProviderId?.trim() && payload.customProviderBaseUrl?.trim()) {
@@ -776,8 +835,13 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
           clawArgs(["config", "set", "--json", "channels.telegram", JSON.stringify(cfgObj)]),
         );
         const get = await runCmd(OPENCLAW_NODE, clawArgs(["config", "get", "channels.telegram"]));
+
+        // Best-effort: enable the telegram plugin explicitly (some builds require this even when configured).
+        const plug = await runCmd(OPENCLAW_NODE, clawArgs(["plugins", "enable", "telegram"]));
+
         extra += `\n[telegram config] exit=${set.code} (output ${set.output.length} chars)\n${set.output || "(no output)"}`;
         extra += `\n[telegram verify] exit=${get.code} (output ${get.output.length} chars)\n${get.output || "(no output)"}`;
+        extra += `\n[telegram plugin enable] exit=${plug.code} (output ${plug.output.length} chars)\n${plug.output || "(no output)"}`;
       }
     }
 
@@ -825,6 +889,14 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
 
     // Apply changes immediately.
     await restartGateway();
+
+    // Ensure OpenClaw applies any "configured but not enabled" channel/plugin changes.
+    // This makes Telegram/Discord pairing issues much less "silent".
+    const fix = await runCmd(OPENCLAW_NODE, clawArgs(["doctor", "--fix"]));
+    extra += `\n[doctor --fix] exit=${fix.code} (output ${fix.output.length} chars)\n${fix.output || "(no output)"}`;
+
+    // Doctor may require a restart depending on changes.
+    await restartGateway();
   }
 
   return res.status(ok ? 200 : 500).json({
@@ -841,6 +913,13 @@ app.get("/setup/api/debug", requireSetupAuth, async (_req, res) => {
   const v = await runCmd(OPENCLAW_NODE, clawArgs(["--version"]));
   const help = await runCmd(OPENCLAW_NODE, clawArgs(["channels", "add", "--help"]));
 
+  // Channel config checks (redact secrets before returning to client)
+  const tg = await runCmd(OPENCLAW_NODE, clawArgs(["config", "get", "channels.telegram"]));
+  const dc = await runCmd(OPENCLAW_NODE, clawArgs(["config", "get", "channels.discord"]));
+
+  const tgOut = redactSecrets(tg.output || "");
+  const dcOut = redactSecrets(dc.output || "");
+
   res.json({
     wrapper: {
       node: process.version,
@@ -854,6 +933,7 @@ app.get("/setup/api/debug", requireSetupAuth, async (_req, res) => {
       internalGatewayHost: INTERNAL_GATEWAY_HOST,
       internalGatewayPort: INTERNAL_GATEWAY_PORT,
       gatewayTarget: GATEWAY_TARGET,
+      gatewayRunning: Boolean(gatewayProc),
       gatewayTokenFromEnv: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN?.trim()),
       gatewayTokenPersisted: fs.existsSync(path.join(STATE_DIR, "gateway.token")),
       lastGatewayError,
@@ -867,6 +947,20 @@ app.get("/setup/api/debug", requireSetupAuth, async (_req, res) => {
       node: OPENCLAW_NODE,
       version: v.output.trim(),
       channelsAddHelpIncludesTelegram: help.output.includes("telegram"),
+      channels: {
+        telegram: {
+          exit: tg.code,
+          configuredEnabled: /"enabled"\s*:\s*true/.test(tg.output || "") || /enabled\s*[:=]\s*true/.test(tg.output || ""),
+          botTokenPresent: /(\d{5,}:[A-Za-z0-9_-]{10,})/.test(tg.output || ""),
+          output: tgOut,
+        },
+        discord: {
+          exit: dc.code,
+          configuredEnabled: /"enabled"\s*:\s*true/.test(dc.output || "") || /enabled\s*[:=]\s*true/.test(dc.output || ""),
+          tokenPresent: /"token"\s*:\s*"?\S+"?/.test(dc.output || "") || /token\s*[:=]\s*\S+/.test(dc.output || ""),
+          output: dcOut,
+        },
+      },
     },
   });
 });
@@ -880,6 +974,8 @@ function redactSecrets(text) {
     .replace(/(sk-[A-Za-z0-9_-]{10,})/g, "[REDACTED]")
     .replace(/(gho_[A-Za-z0-9_]{10,})/g, "[REDACTED]")
     .replace(/(xox[baprs]-[A-Za-z0-9-]{10,})/g, "[REDACTED]")
+    // Telegram bot tokens look like: 123456:ABCDEF...
+    .replace(/(\d{5,}:[A-Za-z0-9_-]{10,})/g, "[REDACTED]")
     .replace(/(AA[A-Za-z0-9_-]{10,}:\S{10,})/g, "[REDACTED]");
 }
 
@@ -1072,14 +1168,26 @@ app.post("/setup/api/devices/approve", requireSetupAuth, async (req, res) => {
 });
 
 app.post("/setup/api/reset", requireSetupAuth, async (_req, res) => {
-  // Minimal reset: delete the config file so /setup can rerun.
+  // Reset: stop gateway (frees memory) + delete config file(s) so /setup can rerun.
   // Keep credentials/sessions/workspace by default.
   try {
+    // Stop gateway to avoid running gateway + onboard concurrently on small Railway instances.
+    try {
+      if (gatewayProc) {
+        try { gatewayProc.kill("SIGTERM"); } catch {}
+        await sleep(750);
+        gatewayProc = null;
+      }
+    } catch {
+      // ignore
+    }
+
     const candidates = typeof resolveConfigCandidates === "function" ? resolveConfigCandidates() : [configPath()];
     for (const p of candidates) {
       try { fs.rmSync(p, { force: true }); } catch {}
     }
-    res.type("text/plain").send("OK - deleted config file(s). You can rerun setup now.");
+
+    res.type("text/plain").send("OK - stopped gateway and deleted config file(s). You can rerun setup now.");
   } catch (err) {
     res.status(500).type("text/plain").send(String(err));
   }
@@ -1231,8 +1339,16 @@ const proxy = httpProxy.createProxyServer({
   xfwd: true,
 });
 
-proxy.on("error", (err, _req, _res) => {
+proxy.on("error", (err, _req, res) => {
   console.error("[proxy]", err);
+  try {
+    if (res && typeof res.writeHead === "function" && !res.headersSent) {
+      res.writeHead(502, { "Content-Type": "text/plain" });
+      res.end("Gateway unavailable\n");
+    }
+  } catch {
+    // ignore
+  }
 });
 
 app.use(async (req, res) => {
@@ -1264,6 +1380,15 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   console.log(`[wrapper] listening on :${PORT}`);
   console.log(`[wrapper] state dir: ${STATE_DIR}`);
   console.log(`[wrapper] workspace dir: ${WORKSPACE_DIR}`);
+
+  // Harden state dir for OpenClaw and avoid missing credentials dir on fresh volumes.
+  try {
+    fs.mkdirSync(path.join(STATE_DIR, "credentials"), { recursive: true });
+  } catch {}
+  try {
+    fs.chmodSync(STATE_DIR, 0o700);
+  } catch {}
+
   console.log(`[wrapper] gateway token: ${OPENCLAW_GATEWAY_TOKEN ? "(set)" : "(missing)"}`);
   console.log(`[wrapper] gateway target: ${GATEWAY_TARGET}`);
   if (!SETUP_PASSWORD) {
@@ -1304,5 +1429,13 @@ process.on("SIGTERM", () => {
   } catch {
     // ignore
   }
-  process.exit(0);
+
+  // Stop accepting new connections; allow in-flight requests to complete briefly.
+  try {
+    server.close(() => process.exit(0));
+  } catch {
+    process.exit(0);
+  }
+
+  setTimeout(() => process.exit(0), 5_000).unref?.();
 });

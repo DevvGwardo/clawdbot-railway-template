@@ -159,6 +159,20 @@
     });
   }
 
+  // Fast auth group load (no subprocesses). Keeps selects from appearing empty.
+  function loadAuthGroupsFast() {
+    return httpJson('/setup/api/auth-groups').then(function (j) {
+      if (j && j.authGroups && j.authGroups.length > 0) {
+        renderAuth(j.authGroups);
+        return;
+      }
+      throw new Error('Missing authGroups from /setup/api/auth-groups');
+    }).catch(function (e) {
+      console.warn('[setup] authGroups load failed:', e);
+      renderAuth([]);
+    });
+  }
+
   document.getElementById('run').onclick = function () {
     var payload = {
       flow: document.getElementById('flow').value,
@@ -373,5 +387,9 @@
       .catch(function (e) { logEl.textContent += 'Error: ' + String(e) + '\n'; });
   };
 
+  // Populate provider/auth selects ASAP (fast endpoint, no subprocesses)
+  loadAuthGroupsFast();
+
+  // Load the rest of status (version/help) in parallel
   refreshStatus();
 })();
