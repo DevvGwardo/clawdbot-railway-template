@@ -1467,11 +1467,31 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   // LobsterBoard persistence — symlink data files to the Railway volume
   try { fs.mkdirSync(LOBSTERBOARD_STATE, { recursive: true }); } catch {}
 
+  // Default dashboard layout with OpenClaw widgets for first-time users.
+  const LB_DEFAULT_CONFIG = JSON.stringify({
+    canvas: { width: 1920, height: 1080 },
+    fontScale: 1,
+    widgets: [
+      { id: "widget-1", type: "clock", x: 20, y: 20, width: 280, height: 140, properties: { title: "", showSeconds: true, timezone: "", format24: false, showHeader: false } },
+      { id: "widget-2", type: "openclaw-release", x: 320, y: 20, width: 220, height: 130, properties: { title: "OpenClaw", openclawUrl: "", refreshInterval: 3600, showHeader: true } },
+      { id: "widget-3", type: "auth-status", x: 560, y: 20, width: 200, height: 110, properties: { title: "Auth", endpoint: "/api/status", refreshInterval: 30, showHeader: true } },
+      { id: "widget-4", type: "session-count", x: 780, y: 20, width: 180, height: 110, properties: { title: "Sessions", endpoint: "/api/sessions", refreshInterval: 30, showHeader: true } },
+      { id: "widget-5", type: "cpu-memory", x: 980, y: 20, width: 340, height: 200, properties: { title: "System", refreshInterval: 5, showHeader: true } },
+      { id: "widget-6", type: "cron-jobs", x: 20, y: 180, width: 520, height: 300, properties: { title: "Cron Jobs", endpoint: "/api/cron", columns: 1, refreshInterval: 30, showHeader: true } },
+      { id: "widget-7", type: "activity-list", x: 560, y: 150, width: 400, height: 330, properties: { title: "Activity", endpoint: "/api/today", maxItems: 10, refreshInterval: 60, showHeader: true } },
+      { id: "widget-8", type: "system-log", x: 20, y: 500, width: 940, height: 400, properties: { title: "System Log", endpoint: "/api/system-log", maxLines: 50, refreshInterval: 10, showHeader: true } },
+      { id: "widget-9", type: "token-gauge", x: 980, y: 240, width: 200, height: 140, properties: { title: "Tokens", maxTokens: 1000000, endpoint: "/api/usage/tokens", refreshInterval: 60, showHeader: true } },
+    ],
+  });
+
   for (const f of ["config.json", "todos.json", "notes.json"]) {
     const src = path.join(LOBSTERBOARD_STATE, f);
     const dst = path.join(LOBSTERBOARD_DIR, f);
     try {
-      if (!fs.existsSync(src)) fs.writeFileSync(src, "{}", "utf8");
+      if (!fs.existsSync(src) || (f === "config.json" && fs.statSync(src).size < 10)) {
+        const initial = f === "config.json" ? LB_DEFAULT_CONFIG : "{}";
+        fs.writeFileSync(src, initial, "utf8");
+      }
       try { fs.unlinkSync(dst); } catch {}
       fs.symlinkSync(src, dst);
     } catch (e) { console.warn(`[lobsterboard] symlink ${f}: ${e.message}`); }

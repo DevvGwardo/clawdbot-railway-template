@@ -53,7 +53,7 @@ RUN npm install --omit=dev
 # HTML already uses relative paths. JS uses absolute paths like fetch('/config').
 # Convert to relative: fetch('config') — resolves correctly from /dashboard/.
 # Only matches internal paths (fetch('/...')), not external (fetch('https://...')).
-RUN sed -i "s|fetch('/|fetch('|g" js/builder.js js/widgets.js js/templates.js \
+RUN sed -i "s|fetch('/|fetch('|g" js/builder.js js/widgets.js js/templates.js index.html \
  && sed -i "s|EventSource('/|EventSource('|g" js/widgets.js
 
 
