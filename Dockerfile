@@ -39,6 +39,24 @@ ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:install && pnpm ui:build
 
 
+# Build LobsterBoard dashboard
+FROM node:22-bookworm AS lobsterboard-build
+WORKDIR /lobsterboard
+
+ARG LOBSTERBOARD_GIT_REF=main
+RUN git clone --depth 1 --branch "${LOBSTERBOARD_GIT_REF}" \
+    https://github.com/Curbob/LobsterBoard.git .
+
+RUN npm install --omit=dev
+
+# Patch JS to use relative API paths (required for /dashboard/ subpath mounting).
+# HTML already uses relative paths. JS uses absolute paths like fetch('/config').
+# Convert to relative: fetch('config') — resolves correctly from /dashboard/.
+# Only matches internal paths (fetch('/...')), not external (fetch('https://...')).
+RUN sed -i "s|fetch('/|fetch('|g" js/builder.js js/widgets.js js/templates.js \
+ && sed -i "s|EventSource('/|EventSource('|g" js/widgets.js
+
+
 # Runtime image
 FROM node:22-bookworm
 ENV NODE_ENV=production
@@ -70,6 +88,9 @@ RUN npm install --omit=dev && npm cache clean --force
 
 # Copy built openclaw
 COPY --from=openclaw-build /openclaw /openclaw
+
+# Copy built LobsterBoard
+COPY --from=lobsterboard-build /lobsterboard /lobsterboard
 
 # Provide an openclaw executable
 RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"' > /usr/local/bin/openclaw \

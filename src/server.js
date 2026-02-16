@@ -79,6 +79,11 @@ const GATEWAY_TARGET = `http://${INTERNAL_GATEWAY_HOST}:${INTERNAL_GATEWAY_PORT}
 const OPENCLAW_ENTRY = process.env.OPENCLAW_ENTRY?.trim() || "/openclaw/dist/entry.js";
 const OPENCLAW_NODE = process.env.OPENCLAW_NODE?.trim() || "node";
 
+// LobsterBoard dashboard
+const LOBSTERBOARD_PORT = 8082;
+const LOBSTERBOARD_DIR = "/lobsterboard";
+const LOBSTERBOARD_STATE = "/data/.lobsterboard";
+
 function clawArgs(args) {
   return [OPENCLAW_ENTRY, ...args];
 }
@@ -212,6 +217,30 @@ async function startGateway() {
     console.error(msg);
     lastGatewayExit = { code, signal, at: new Date().toISOString() };
     gatewayProc = null;
+  });
+}
+
+let lobsterboardProc = null;
+
+function startLobsterBoard() {
+  if (lobsterboardProc) return;
+  lobsterboardProc = childProcess.spawn("node", ["server.cjs"], {
+    cwd: LOBSTERBOARD_DIR,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      PORT: String(LOBSTERBOARD_PORT),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+    },
+  });
+  lobsterboardProc.on("error", (err) => {
+    console.error(`[lobsterboard] spawn error: ${err}`);
+    lobsterboardProc = null;
+  });
+  lobsterboardProc.on("exit", (code, signal) => {
+    console.error(`[lobsterboard] exited code=${code} signal=${signal}`);
+    lobsterboardProc = null;
   });
 }
 
@@ -1341,6 +1370,32 @@ app.post("/setup/import", requireSetupAuth, async (req, res) => {
   }
 });
 
+// LobsterBoard proxy (localhost only, no WebSocket needed).
+const lbProxy = httpProxy.createProxyServer({
+  target: `http://127.0.0.1:${LOBSTERBOARD_PORT}`,
+  xfwd: true,
+});
+
+lbProxy.on("error", (err, _req, res) => {
+  console.error("[lb-proxy]", err);
+  try {
+    if (res && !res.headersSent) {
+      res.writeHead(502, { "Content-Type": "text/plain" });
+      res.end("Dashboard unavailable\n");
+    }
+  } catch {}
+});
+
+// Redirect /dashboard to /dashboard/ (trailing slash required for relative URLs)
+app.get("/dashboard", (_req, res) => res.redirect(301, "/dashboard/"));
+
+// Proxy /dashboard/* to LobsterBoard
+app.use("/dashboard/", requireSetupAuth, (req, res) => {
+  // Strip /dashboard prefix — LobsterBoard expects root-relative paths
+  req.url = req.url || "/";
+  lbProxy.web(req, res);
+});
+
 // Proxy everything else to the gateway.
 const proxy = httpProxy.createProxyServer({
   target: GATEWAY_TARGET,
@@ -1408,6 +1463,38 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
     console.warn("[wrapper] WARNING: SETUP_PASSWORD is not set; /setup will error.");
   }
 
+  // LobsterBoard persistence — symlink data files to the Railway volume
+  try { fs.mkdirSync(LOBSTERBOARD_STATE, { recursive: true }); } catch {}
+
+  for (const f of ["config.json", "todos.json", "notes.json"]) {
+    const src = path.join(LOBSTERBOARD_STATE, f);
+    const dst = path.join(LOBSTERBOARD_DIR, f);
+    try {
+      if (!fs.existsSync(src)) fs.writeFileSync(src, "{}", "utf8");
+      try { fs.unlinkSync(dst); } catch {}
+      fs.symlinkSync(src, dst);
+    } catch (e) { console.warn(`[lobsterboard] symlink ${f}: ${e.message}`); }
+  }
+
+  // Symlink LobsterBoard data directory to volume
+  const lbDataDir = path.join(LOBSTERBOARD_STATE, "data");
+  const lbDataLink = path.join(LOBSTERBOARD_DIR, "data");
+  try {
+    fs.mkdirSync(lbDataDir, { recursive: true });
+    try { fs.rmSync(lbDataLink, { recursive: true, force: true }); } catch {}
+    fs.symlinkSync(lbDataDir, lbDataLink);
+  } catch (e) { console.warn(`[lobsterboard] symlink data: ${e.message}`); }
+
+  // Symlink OpenClaw state so LobsterBoard's os.homedir() lookups find it
+  const homeOc = path.join(os.homedir(), ".openclaw");
+  try {
+    if (!fs.existsSync(homeOc)) fs.symlinkSync(STATE_DIR, homeOc);
+  } catch {}
+
+  // Start LobsterBoard
+  startLobsterBoard();
+  console.log("[wrapper] LobsterBoard starting on :" + LOBSTERBOARD_PORT);
+
   // Auto-start the gateway if already configured so polling channels (Telegram/Discord/etc.)
   // work even if nobody visits the web UI.
   if (isConfigured()) {
@@ -1446,6 +1533,9 @@ process.on("SIGTERM", () => {
   } catch {
     // ignore
   }
+  try {
+    if (lobsterboardProc) lobsterboardProc.kill("SIGTERM");
+  } catch {}
 
   // Stop accepting new connections; allow in-flight requests to complete briefly.
   try {
