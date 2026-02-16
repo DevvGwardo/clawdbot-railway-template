@@ -1467,20 +1467,25 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   // LobsterBoard persistence — symlink data files to the Railway volume
   try { fs.mkdirSync(LOBSTERBOARD_STATE, { recursive: true }); } catch {}
 
-  // Default dashboard layout with OpenClaw widgets for first-time users.
+  // Default dashboard layout — professional monitoring grid with real-time data.
   const LB_DEFAULT_CONFIG = JSON.stringify({
     canvas: { width: 1920, height: 1080 },
     fontScale: 1,
     widgets: [
-      { id: "widget-1", type: "clock", x: 20, y: 20, width: 280, height: 140, properties: { title: "", showSeconds: true, timezone: "", format24: false, showHeader: false } },
-      { id: "widget-2", type: "openclaw-release", x: 320, y: 20, width: 220, height: 130, properties: { title: "OpenClaw", openclawUrl: "", refreshInterval: 3600, showHeader: true } },
-      { id: "widget-3", type: "auth-status", x: 560, y: 20, width: 200, height: 110, properties: { title: "Auth", endpoint: "api/status", refreshInterval: 30, showHeader: true } },
-      { id: "widget-4", type: "session-count", x: 780, y: 20, width: 180, height: 110, properties: { title: "Sessions", endpoint: "api/sessions", refreshInterval: 30, showHeader: true } },
-      { id: "widget-5", type: "cpu-memory", x: 980, y: 20, width: 340, height: 200, properties: { title: "System", refreshInterval: 5, showHeader: true } },
-      { id: "widget-6", type: "cron-jobs", x: 20, y: 180, width: 520, height: 300, properties: { title: "Cron Jobs", endpoint: "api/cron", columns: 1, refreshInterval: 30, showHeader: true } },
-      { id: "widget-7", type: "activity-list", x: 560, y: 150, width: 400, height: 330, properties: { title: "Activity", endpoint: "api/today", maxItems: 10, refreshInterval: 60, showHeader: true } },
-      { id: "widget-8", type: "system-log", x: 20, y: 500, width: 940, height: 400, properties: { title: "System Log", endpoint: "api/system-log", maxLines: 50, refreshInterval: 10, showHeader: true } },
-      { id: "widget-9", type: "token-gauge", x: 980, y: 240, width: 200, height: 140, properties: { title: "Tokens", maxTokens: 1000000, endpoint: "api/usage/tokens", refreshInterval: 60, showHeader: true } },
+      // Row 1: Status bar (y=8, h=68)
+      { id: "w-1", type: "clock", x: 8, y: 8, width: 240, height: 68, properties: { title: "", showSeconds: true, timezone: "", format24: true, showHeader: false } },
+      { id: "w-2", type: "openclaw-release", x: 256, y: 8, width: 200, height: 68, properties: { title: "OpenClaw", openclawUrl: "", refreshInterval: 3600, showHeader: true } },
+      { id: "w-3", type: "auth-status", x: 464, y: 8, width: 175, height: 68, properties: { title: "Auth", endpoint: "api/status", refreshInterval: 30, showHeader: true } },
+      { id: "w-4", type: "session-count", x: 647, y: 8, width: 155, height: 68, properties: { title: "Sessions", endpoint: "api/sessions", refreshInterval: 15, showHeader: true } },
+      { id: "w-5", type: "network-speed", x: 810, y: 8, width: 195, height: 68, properties: { title: "Network", endpoint: "api/stats/stream", refreshInterval: 2, showHeader: true } },
+      { id: "w-6", type: "disk-usage", x: 1013, y: 8, width: 155, height: 68, properties: { title: "Disk", path: "/data", endpoint: "api/stats/stream", refreshInterval: 30, showHeader: true } },
+      { id: "w-7", type: "token-gauge", x: 1176, y: 8, width: 185, height: 68, properties: { title: "Tokens", maxTokens: 1000000, endpoint: "api/usage/tokens", refreshInterval: 60, showHeader: true } },
+      { id: "w-8", type: "cpu-memory", x: 1369, y: 8, width: 543, height: 68, properties: { title: "System", refreshInterval: 3, showHeader: true } },
+      // Row 2: Main panels (y=84, fills remaining height)
+      { id: "w-9", type: "system-log", x: 8, y: 84, width: 700, height: 988, properties: { title: "System Log", endpoint: "api/system-log", maxLines: 100, refreshInterval: 5, showHeader: true } },
+      { id: "w-10", type: "activity-list", x: 716, y: 84, width: 540, height: 488, properties: { title: "Activity", endpoint: "api/today", maxItems: 20, refreshInterval: 30, showHeader: true } },
+      { id: "w-11", type: "api-status", x: 716, y: 580, width: 540, height: 492, properties: { title: "API Health", services: "OpenAI,Anthropic,Google,OpenClaw", refreshInterval: 60, showHeader: true } },
+      { id: "w-12", type: "cron-jobs", x: 1264, y: 84, width: 648, height: 988, properties: { title: "Cron Jobs", endpoint: "api/cron", columns: 1, refreshInterval: 15, showHeader: true } },
     ],
   });
 
