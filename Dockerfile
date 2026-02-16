@@ -64,6 +64,9 @@ COPY --from=openclaw-build /openclaw /openclaw
 RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"' > /usr/local/bin/openclaw \
   && chmod +x /usr/local/bin/openclaw
 
+# Let git authenticate via gh (reads GH_TOKEN env var at runtime).
+RUN git config --global credential.helper '!gh auth git-credential'
+
 COPY src ./src
 
 # The wrapper listens on this port.
