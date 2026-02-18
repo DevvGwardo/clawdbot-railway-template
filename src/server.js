@@ -150,7 +150,7 @@ function sleep(ms) {
 }
 
 async function waitForGatewayReady(opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = opts.timeoutMs ?? 45_000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -272,7 +272,7 @@ async function ensureGatewayRunning() {
       try {
         lastGatewayError = null;
         await startGateway();
-        const ready = await waitForGatewayReady({ timeoutMs: 20_000 });
+        const ready = await waitForGatewayReady({ timeoutMs: 45_000 });
         if (!ready) {
           throw new Error("Gateway did not become ready in time");
         }
