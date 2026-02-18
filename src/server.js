@@ -1476,13 +1476,6 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
     } catch (e) { console.warn(`[wrapper] git config failed: ${e.message}`); }
   }
 
-  // Ensure PRD Builder context directories exist so cron jobs don't fail on ENOENT.
-  for (const sub of ["builds"]) {
-    try {
-      fs.mkdirSync(path.join(WORKSPACE_DIR, sub), { recursive: true });
-    } catch {}
-  }
-
   console.log(`[wrapper] gateway token: ${OPENCLAW_GATEWAY_TOKEN ? "(set)" : "(missing)"}`);
   console.log(`[wrapper] gateway target: ${GATEWAY_TARGET}`);
   if (!SETUP_PASSWORD) {
