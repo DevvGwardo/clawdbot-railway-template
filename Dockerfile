@@ -99,6 +99,11 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 # Let git authenticate via gh (reads GH_TOKEN env var at runtime).
 RUN git config --global credential.helper '!gh auth git-credential'
 
+# Default git identity for automated commits (PRD Builder, cron jobs, etc.).
+# Override at runtime via GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL env vars if needed.
+RUN git config --global user.name "OpenClaw Gateway" \
+  && git config --global user.email "openclaw-bot@users.noreply.github.com"
+
 # Persistent bin directory on the volume — tools installed by the agent at
 # runtime (e.g. via npm -g, curl, apt download) survive redeploys if placed here.
 ENV PATH="/data/.local/bin:${PATH}"

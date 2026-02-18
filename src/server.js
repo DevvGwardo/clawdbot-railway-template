@@ -20,6 +20,14 @@ for (const suffix of ["PUBLIC_PORT", "STATE_DIR", "WORKSPACE_DIR", "GATEWAY_TOKE
   }
 }
 
+// Normalize GitHub token env vars so gh CLI and git credential helper both work.
+// gh CLI reads GH_TOKEN; some tools set GITHUB_TOKEN instead.
+if (process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
+  process.env.GH_TOKEN = process.env.GITHUB_TOKEN;
+} else if (process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
+  process.env.GITHUB_TOKEN = process.env.GH_TOKEN;
+}
+
 // Railway injects PORT at runtime and routes traffic to that port.
 // Do not force a different public port in the container image, or the service may
 // boot but the Railway domain will be routed to a different port.
@@ -1454,6 +1462,26 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   try {
     fs.chmodSync(STATE_DIR, 0o700);
   } catch {}
+
+  // Ensure git identity is configured at runtime (supplements the Dockerfile default;
+  // covers cases where the image wasn't rebuilt or the global gitconfig was wiped).
+  try {
+    const email = childProcess.execSync("git config --global user.email 2>/dev/null", { encoding: "utf8" }).trim();
+    if (!email) throw new Error("empty");
+  } catch {
+    try {
+      childProcess.execSync('git config --global user.email "openclaw-bot@users.noreply.github.com"');
+      childProcess.execSync('git config --global user.name "OpenClaw Gateway"');
+      console.log("[wrapper] git identity configured at runtime");
+    } catch (e) { console.warn(`[wrapper] git config failed: ${e.message}`); }
+  }
+
+  // Ensure PRD Builder context directories exist so cron jobs don't fail on ENOENT.
+  for (const sub of ["builds"]) {
+    try {
+      fs.mkdirSync(path.join(WORKSPACE_DIR, sub), { recursive: true });
+    } catch {}
+  }
 
   console.log(`[wrapper] gateway token: ${OPENCLAW_GATEWAY_TOKEN ? "(set)" : "(missing)"}`);
   console.log(`[wrapper] gateway target: ${GATEWAY_TARGET}`);

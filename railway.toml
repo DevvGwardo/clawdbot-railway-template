@@ -15,3 +15,8 @@ requiredMountPath = "/data"
 # can cause domain routing mismatches.
 OPENCLAW_STATE_DIR = "/data/.openclaw"
 OPENCLAW_WORKSPACE_DIR = "/data/workspace"
+
+# GitHub token for agent git operations (push, clone private repos, PRD Builder).
+# The gh CLI reads GH_TOKEN; the wrapper also accepts GITHUB_TOKEN.
+# Generate at: https://github.com/settings/tokens (needs 'repo' scope).
+# GH_TOKEN = "${GH_TOKEN}"
