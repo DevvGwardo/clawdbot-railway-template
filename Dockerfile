@@ -66,6 +66,7 @@ RUN apt-get update \
     ca-certificates \
     curl \
     git \
+    tini \
   && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI (used by agent skills for git auth and GitHub API).
@@ -115,4 +116,5 @@ COPY src ./src
 # Railway injects PORT at runtime and routes traffic to that port.
 # If we force a different port, deployments can come up but the domain will route elsewhere.
 EXPOSE 3000
+ENTRYPOINT ["tini", "--"]
 CMD ["node", "src/server.js"]
