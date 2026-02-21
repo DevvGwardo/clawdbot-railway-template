@@ -201,12 +201,21 @@ async function startGateway() {
     OPENCLAW_GATEWAY_TOKEN,
   ];
 
+  // Inject a preload script that catches the undici TLS session resumption crash
+  // (TypeError: Cannot read properties of null (reading 'setSession')).
+  const guardPath = path.join(import.meta.dirname, "tls-crash-guard.cjs");
+  const parentNodeOpts = process.env.NODE_OPTIONS ?? "";
+  const nodeOpts = parentNodeOpts
+    ? `${parentNodeOpts} --require ${guardPath}`
+    : `--require ${guardPath}`;
+
   gatewayProc = childProcess.spawn(OPENCLAW_NODE, clawArgs(args), {
     stdio: "inherit",
     env: {
       ...process.env,
       OPENCLAW_STATE_DIR: STATE_DIR,
       OPENCLAW_WORKSPACE_DIR: WORKSPACE_DIR,
+      NODE_OPTIONS: nodeOpts,
     },
   });
 
@@ -852,6 +861,43 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
           clawArgs(["config", "set", "--json", `models.providers.${providerId}`, JSON.stringify(providerCfg)]),
         );
         extra += `\n[custom provider] exit=${set.code} (output ${set.output.length} chars)\n${set.output || "(no output)"}`;
+      }
+    }
+
+    // Fix kimi-coding provider config: OpenClaw's onboarding may write incorrect baseUrl
+    // (moonshot.ai/v1) and api type (openai-completions) for kimi-coding.
+    // The correct endpoint is https://api.kimi.com/coding with anthropic-messages API.
+    if (payload.authChoice === "kimi-code-api-key") {
+      const agentDirs = [
+        path.join(STATE_DIR, "agents", "main", "agent"),
+        path.join(STATE_DIR, "agents", "lead", "agent"),
+      ];
+      for (const agentDir of agentDirs) {
+        const modelsPath = path.join(agentDir, "models.json");
+        try {
+          if (fs.existsSync(modelsPath)) {
+            const models = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+            const kc = models?.providers?.["kimi-coding"];
+            if (kc && kc.baseUrl !== "https://api.kimi.com/coding") {
+              kc.baseUrl = "https://api.kimi.com/coding";
+              kc.api = "anthropic-messages";
+              // Upgrade model specs to match pi-ai built-in catalog.
+              if (Array.isArray(kc.models)) {
+                const k2p5 = kc.models.find((m) => m.id === "k2p5");
+                if (k2p5) {
+                  k2p5.input = ["text", "image"];
+                  k2p5.contextWindow = 262144;
+                  k2p5.maxTokens = 32768;
+                  k2p5.cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+                }
+              }
+              fs.writeFileSync(modelsPath, JSON.stringify(models, null, 2));
+              extra += `\n[kimi-coding fix] corrected baseUrl/api in ${modelsPath}`;
+            }
+          }
+        } catch (e) {
+          extra += `\n[kimi-coding fix] warning: ${String(e)}`;
+        }
       }
     }
 
