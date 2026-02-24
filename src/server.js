@@ -841,17 +841,17 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
           enabled: true,
           token,
           groupPolicy: "allowlist",
-          dm: {
-            policy: "pairing",
-          },
+          dmPolicy: "pairing",
         };
         const set = await runCmd(
           OPENCLAW_NODE,
           clawArgs(["config", "set", "--json", "channels.discord", JSON.stringify(cfgObj)]),
         );
         const get = await runCmd(OPENCLAW_NODE, clawArgs(["config", "get", "channels.discord"]));
+        const plug = await runCmd(OPENCLAW_NODE, clawArgs(["plugins", "enable", "discord"]));
         extra += `\n[discord config] exit=${set.code} (output ${set.output.length} chars)\n${set.output || "(no output)"}`;
         extra += `\n[discord verify] exit=${get.code} (output ${get.output.length} chars)\n${get.output || "(no output)"}`;
+        extra += `\n[discord plugin enable] exit=${plug.code} (output ${plug.output.length} chars)\n${plug.output || "(no output)"}`;
       }
     }
 
