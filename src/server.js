@@ -840,6 +840,7 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
         const cfgObj = {
           enabled: true,
           token,
+          streaming: "off",
           groupPolicy: "allowlist",
           dmPolicy: "pairing",
         };
@@ -848,9 +849,15 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
           clawArgs(["config", "set", "--json", "channels.discord", JSON.stringify(cfgObj)]),
         );
         const get = await runCmd(OPENCLAW_NODE, clawArgs(["config", "get", "channels.discord"]));
+        // Best-effort: enable Discord plugin in both config and plugin registry for older builds.
+        const plugCfg = await runCmd(
+          OPENCLAW_NODE,
+          clawArgs(["config", "set", "--json", "plugins.entries.discord.enabled", "true"]),
+        );
         const plug = await runCmd(OPENCLAW_NODE, clawArgs(["plugins", "enable", "discord"]));
         extra += `\n[discord config] exit=${set.code} (output ${set.output.length} chars)\n${set.output || "(no output)"}`;
         extra += `\n[discord verify] exit=${get.code} (output ${get.output.length} chars)\n${get.output || "(no output)"}`;
+        extra += `\n[discord plugin config] exit=${plugCfg.code} (output ${plugCfg.output.length} chars)\n${plugCfg.output || "(no output)"}`;
         extra += `\n[discord plugin enable] exit=${plug.code} (output ${plug.output.length} chars)\n${plug.output || "(no output)"}`;
       }
     }
